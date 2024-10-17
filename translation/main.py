@@ -1,4 +1,5 @@
 import logging
+import math
 import random
 import time
 from datetime import timedelta
@@ -52,9 +53,7 @@ def train_epoch(
 
 def train_model(train_data: list[Batch], val_data: list[Batch], manager: Manager, logger: Logger):
     model, vocab = manager.model, manager.vocab
-    criterion = torch.nn.CrossEntropyLoss(
-        ignore_index=vocab.PAD, label_smoothing=manager.label_smoothing
-    )
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=vocab.PAD, reduction='sum')
     optimizer = torch.optim.Adam(model.parameters(), lr=manager.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=manager.decay_factor, patience=manager.patience
@@ -68,15 +67,16 @@ def train_model(train_data: list[Batch], val_data: list[Batch], manager: Manager
 
         model.train()
         start = time.perf_counter()
-        train_loss = (
-            train_epoch(train_data, manager, criterion, optimizer, scaler) / manager.config['k']
-        )
+        train_loss = train_epoch(train_data, manager, criterion, optimizer, scaler)
         elapsed = timedelta(seconds=(time.perf_counter() - start))
 
         model.eval()
         with torch.no_grad():
-            val_loss = train_epoch(val_data, manager, criterion) / manager.config['k']
+            val_loss = train_epoch(val_data, manager, criterion)
         scheduler.step(val_loss)
+
+        train_loss /= math.log(2) * manager.config['k']
+        val_loss /= math.log(2) * manager.config['k']
 
         checkpoint = f'[{str(epoch + 1).rjust(len(str(manager.max_epochs)), "0")}]'
         checkpoint += f' Training Loss = {train_loss:.16f}'
@@ -108,12 +108,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     # parser.add_argument('--lang-pair', required=True, help='source-target language pair')
-    parser.add_argument(
-        '--train-data', metavar='FILE_PATH', required=True, help='parallel training data'
-    )
-    parser.add_argument(
-        '--val-data', metavar='FILE_PATH', required=True, help='parallel validation data'
-    )
+    parser.add_argument('--train-data', metavar='FILE_PATH', required=True, help='training data')
+    parser.add_argument('--val-data', metavar='FILE_PATH', required=True, help='validation data')
     parser.add_argument('--sw-vocab', metavar='FILE_PATH', required=True, help='subword vocab')
     # parser.add_argument('--sw-model', metavar='FILE_PATH', required=True, help='subword model')
     parser.add_argument('--model', metavar='FILE_PATH', required=True, help='translation model')
