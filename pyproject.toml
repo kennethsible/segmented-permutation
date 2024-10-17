@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "translation"
+version = "0.1.0"
+description = "Improving Rare Word Translation with Dictionaries and Attention Masking"
+authors = ["Ken Sible <ksible@nd.edu>"]
+
+[[tool.poetry.source]]
+name = "pypi"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "cu121"
+url = "https://download.pytorch.org/whl/cu121"
+priority = "supplemental"
+
+[tool.poetry.dependencies]
+python = "^3.11.2"
+sacrebleu = "^2.4.0"
+sacremoses = "^0.1.1"
+subword-nmt = "^0.3.8"
+sentencepiece = "^0.2.0"
+tqdm = "^4.66.2"
+nltk = "^3.8.1"
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.2"
+black = "^24.2.0"
+ruff = "^0.2.1"
+mypy = "^1.8.0"
+
+[tool.poetry.group.cu121.dependencies]
+torch = { version = "^2.2.0", source = "cu121" }
+
+[tool.poetry.group.spacy.dependencies]
+spacy = "^3.7.2"
+de_core_news_sm = {url = "https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.7.0/de_core_news_sm-3.7.0-py3-none-any.whl"}
+
+[tool.black]
+skip-string-normalization = true
+line-length = 100
+
+[tool.ruff]
+extend-select = ["I"]
+line-length = 100
+
+[tool.mypy]
+ignore_missing_imports = true

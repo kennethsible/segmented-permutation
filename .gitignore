@@ -1,0 +1,8 @@
+__pycache__/
+.mypy_cache/
+.vscode/
+.venv/
+*.pyc
+.git_translation/
+job_*.sh
+data_bits/
