@@ -4,5 +4,7 @@ __pycache__/
 .venv/
 *.pyc
 .git_translation/
-job_*.sh
+experiments/*
+!experiments/*.log
+!experiments/*.png
 data_bits/

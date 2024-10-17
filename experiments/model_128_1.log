@@ -1,0 +1,10 @@
+[001] Training Loss = 1.0080454938796564 | Validation Loss = 0.9993009864829834 | Learning Rate = 0.0003000000000000 | Elapsed Time = 0:20:24.559088
+[002] Training Loss = 0.9998753494045131 | Validation Loss = 0.9992965449828698 | Learning Rate = 0.0003000000000000 | Elapsed Time = 0:20:28.660992
+[003] Training Loss = 0.9998496210451382 | Validation Loss = 0.9993239473917257 | Learning Rate = 0.0003000000000000 | Elapsed Time = 0:20:28.774383
+[004] Training Loss = 0.9995994177223481 | Validation Loss = 0.9993158308576018 | Learning Rate = 0.0003000000000000 | Elapsed Time = 0:20:28.837134
+[005] Training Loss = 1.0020001736579629 | Validation Loss = 0.9993253576481205 | Learning Rate = 0.0002400000000000 | Elapsed Time = 0:20:28.809312
+[006] Training Loss = 0.9995633431682827 | Validation Loss = 0.9993203681445015 | Learning Rate = 0.0002400000000000 | Elapsed Time = 0:20:28.864073
+[007] Training Loss = nan | Validation Loss = 0.9993315017476182 | Learning Rate = 0.0002400000000000 | Elapsed Time = 0:20:28.753609
+[008] Training Loss = nan | Validation Loss = nan | Learning Rate = 0.0002400000000000 | Elapsed Time = 0:19:45.038638
+[009] Training Loss = nan | Validation Loss = nan | Learning Rate = 0.0001920000000000 | Elapsed Time = 0:18:42.771851
+[010] Training Loss = nan | Validation Loss = nan | Learning Rate = 0.0001920000000000 | Elapsed Time = 0:18:42.532022
