@@ -152,6 +152,8 @@ class Manager:
         # else:
         #     self.sw_model = spm.SentencePieceProcessor(sw_model_file)
 
+        if 'pool_method' not in self.config:
+            self.config['pool_method'] = None
         self.model = Model(
             self.vocab.size(),
             self.embed_dim,
@@ -159,6 +161,8 @@ class Manager:
             self.num_heads,
             self.dropout,
             self.num_layers,
+            8 // self.config['k'],
+            self.config['pool_method'],
         ).to(device)
 
         def init_weights(m):

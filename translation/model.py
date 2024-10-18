@@ -1,6 +1,7 @@
 import math
 from typing import Callable
 
+import torch
 import torch.nn as nn
 from torch import Tensor
 
@@ -95,6 +96,33 @@ class Decoder(nn.Module):
         return self.norm(tgt_encs)
 
 
+class RNNPool(nn.Module):
+    def __init__(self, embed_dim: int, kernel_size: int):
+        super(RNNPool, self).__init__()
+        self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
+        self.kernel_size = kernel_size
+
+    # x: [batch_size, 1, seq_len] if mask else [batch_size, seq_len, embed_dim]
+    def forward(self, x: Tensor, mask: bool = False) -> Tensor:
+        stride = self.kernel_size
+        if mask:
+            z = x[:, :, 0].unsqueeze(2)
+            for i in range(stride, x.size(2), stride):
+                z = torch.cat((z, x[:, :, i].unsqueeze(2)), dim=2)
+            return z
+        # print(x.size())
+        y, _ = self.rnn(x[:, :stride, :])
+        z = y[:, -1, :].unsqueeze(1)
+        for i in range(stride, x.size(1), stride):
+            # print(x[:, i : i + stride, :].size())
+            y, _ = self.rnn(x[:, i : i + stride, :])
+            # print(y.size())
+            z = torch.cat((z, y[:, -1, :].unsqueeze(1)), dim=1)
+            # print(z.size())
+        # exit()
+        return z
+
+
 class Model(nn.Module):
     def __init__(
         self,
@@ -104,10 +132,20 @@ class Model(nn.Module):
         num_heads: int,
         dropout: float,
         num_layers: int,
+        kernel_size: int,
+        pool_method: str | None = None,
     ):
         super(Model, self).__init__()
         self.encoder = Encoder(embed_dim, ff_dim, num_heads, dropout, num_layers)
         self.decoder = Decoder(embed_dim, ff_dim, num_heads, dropout, num_layers)
+        self.pool: nn.MaxPool1d | nn.AvgPool1d | RNNPool | None = None
+        match pool_method:
+            case 'max':
+                self.pool = nn.MaxPool1d(kernel_size, stride=kernel_size)
+            case 'avg':
+                self.pool = nn.AvgPool1d(kernel_size, stride=kernel_size)
+            case 'rnn':
+                self.pool = RNNPool(embed_dim, kernel_size)
         self.out_embed = Embedding(embed_dim, math.ceil(vocab_dim / 8) * 8)
         self.src_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
         self.tgt_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
@@ -117,7 +155,10 @@ class Model(nn.Module):
         src_nums: Tensor,
         src_mask: Tensor | None = None,
     ) -> Tensor:
-        src_embs = self.src_embed(src_nums)
+        if self.pool is None:
+            src_embs = self.src_embed(src_nums)
+        else:
+            src_embs = self.pool(self.src_embed(src_nums))
         return self.encoder(src_embs, src_mask)
 
     def decode(
@@ -127,16 +168,27 @@ class Model(nn.Module):
         src_mask: Tensor | None = None,
         tgt_mask: Tensor | None = None,
     ) -> Tensor:
-        tgt_embs = self.tgt_embed(tgt_nums)
+        if self.pool is None:
+            tgt_embs = self.tgt_embed(tgt_nums)
+        else:
+            tgt_embs = self.pool(self.tgt_embed(tgt_nums))
+        # print(src_encs.size())
+        # print(src_mask.size())
+        # print(tgt_embs.size())
+        # print(tgt_mask.size())
+        # exit()
         return self.decoder(src_encs, tgt_embs, src_mask, tgt_mask)
 
     def forward(
-        self,
-        src_nums: Tensor,
-        tgt_nums: Tensor,
-        src_mask: Tensor | None = None,
-        tgt_mask: Tensor | None = None,
+        self, src_nums: Tensor, tgt_nums: Tensor, src_mask: Tensor, tgt_mask: Tensor
     ) -> Tensor:
+        if self.pool is not None:
+            src_mask = self.pool(src_mask, mask=True)
+            # print(tgt_mask[0, 1, :].tolist())
+            tgt_mask = self.pool(tgt_mask, mask=True)
+            # print(tgt_mask[0, 1, :].tolist())
+            tgt_mask = self.pool(tgt_mask.transpose(1, 2), mask=True).transpose(1, 2)
+            # print(tgt_mask[0, 1, :].tolist())
         src_encs = self.encode(src_nums, src_mask)
         tgt_encs = self.decode(src_encs, tgt_nums, src_mask, tgt_mask)
         return self.out_embed(tgt_encs, inverse=True)
