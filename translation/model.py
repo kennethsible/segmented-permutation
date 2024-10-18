@@ -102,6 +102,20 @@ class RNNPool(nn.Module):
         self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
         self.kernel_size = kernel_size
 
+    # x: [batch_size, seq_len * k / 8, embed_dim]
+    def inverse(self, x: Tensor) -> Tensor:
+        stride = self.kernel_size
+        # print(x.size())
+        z, _ = self.rnn(x[:, 0:1, :].expand(-1, stride, -1))
+        for i in range(1, x.size(1)):
+            # print(x[:, i : i + 1, :].expand(-1, stride, -1).size())
+            y, _ = self.rnn(x[:, i : i + 1, :].expand(-1, stride, -1))
+            # print(y.size())
+            z = torch.cat((z, y), dim=1)
+            # print(z.size())
+        # exit()
+        return z
+
     # x: [batch_size, 1, seq_len] if mask else [batch_size, seq_len, embed_dim]
     def forward(self, x: Tensor, mask: bool = False) -> Tensor:
         stride = self.kernel_size
@@ -191,4 +205,6 @@ class Model(nn.Module):
             # print(tgt_mask[0, 1, :].tolist())
         src_encs = self.encode(src_nums, src_mask)
         tgt_encs = self.decode(src_encs, tgt_nums, src_mask, tgt_mask)
+        if isinstance(self.pool, RNNPool):
+            tgt_encs = self.pool.inverse(tgt_encs)
         return self.out_embed(tgt_encs, inverse=True)
