@@ -1,4 +1,4 @@
-embed_dim           = 512   # dimensions of embedding sublayers
+embed_dim           = 256   # dimensions of embedding sublayers
 ff_dim              = 2048  # dimensions of feed-forward sublayers
 num_heads           = 8     # number of parallel attention heads
 dropout             = 0.1   # dropout for emb/ff/attn sublayers
