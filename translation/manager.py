@@ -1,5 +1,3 @@
-import math
-
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -45,10 +43,13 @@ class Vocab:
 
 
 class Batch:
-    def __init__(self, src_nums: Tensor, tgt_nums: Tensor, ignore_index: int, device: str = 'cpu'):
+    def __init__(
+        self, src_nums: Tensor, tgt_nums: Tensor, ignore_index: int, shift: int, device: str = 'cpu'
+    ):
         self._src_nums = src_nums
         self._tgt_nums = tgt_nums
         self.ignore_index = ignore_index
+        self.shift = shift  # kernel_size
         self.device = device
 
     @property
@@ -65,10 +66,11 @@ class Batch:
 
     @property
     def tgt_mask(self) -> Tensor:
-        return triu_mask(self.tgt_nums.size(-1), device=self.device)
+        # return triu_mask(self.tgt_nums.size(-1), device=self.device)
+        return triu_mask(self.tgt_nums[:, : -self.shift].size(-1), device=self.device)
 
     def length(self) -> int:
-        return int((self.tgt_nums[:, 1:] != self.ignore_index).sum())
+        return int((self.tgt_nums[:, self.shift :] != self.ignore_index).sum())
 
     def size(self) -> int:
         return self._src_nums.size(0)
@@ -152,8 +154,8 @@ class Manager:
         # else:
         #     self.sw_model = spm.SentencePieceProcessor(sw_model_file)
 
-        if 'pool_method' not in self.config:
-            self.config['pool_method'] = None
+        # if 'pool_method' not in self.config:
+        #     self.config['pool_method'] = None
         self.model = Model(
             self.vocab.size(),
             self.embed_dim,
@@ -162,7 +164,7 @@ class Manager:
             self.dropout,
             self.num_layers,
             8 // self.config['k'],
-            self.config['pool_method'],
+            # self.config['pool_method'],
         ).to(device)
 
         def init_weights(m):
@@ -192,17 +194,21 @@ class Manager:
 
         data.sort(key=lambda x: (len(x[0]), len(x[1])), reverse=True)
 
+        N = 8 // self.config['k']
         i = batch_size = 0
         while (i := i + batch_size) < len(data):
             src_len, tgt_len = len(data[i][0]), len(data[i][1])
 
             while True:
-                seq_len = math.ceil(max(src_len, tgt_len) / 8) * 8
-                batch_size = max(self.batch_size // (seq_len * 8) * 8, 1)
+                # seq_len = math.ceil(max(src_len, tgt_len) / 8) * 8
+                # batch_size = max(self.batch_size // (seq_len * 8) * 8, 1)
+                batch_size = max(self.batch_size // max(src_len, tgt_len), 1)
 
                 src_batch, tgt_batch = zip(*data[i : (i + batch_size)])
-                src_len = math.ceil(max(len(src_words) for src_words in src_batch) / 8) * 8
-                tgt_len = math.ceil(max(len(tgt_words) for tgt_words in tgt_batch) / 8) * 8
+                # src_len = math.ceil(max(len(src_words) for src_words in src_batch) / 8) * 8
+                # tgt_len = math.ceil(max(len(tgt_words) for tgt_words in tgt_batch) / 8) * 8
+                src_len = max(len(src_words) for src_words in src_batch)
+                tgt_len = max(len(tgt_words) for tgt_words in tgt_batch)
 
                 if batch_size * max(src_len, tgt_len) <= self.batch_size:
                     break
@@ -229,16 +235,17 @@ class Manager:
                 ]
             )
 
-            batched_data.append(Batch(src_nums, tgt_nums, self.vocab.PAD, self.device))
+            batched_data.append(Batch(src_nums, tgt_nums, self.vocab.PAD, N, self.device))
 
         return batched_data
 
     def load_data(self, data_file: str) -> list[Batch]:
         data = []
         with open(data_file) as data_f:
+            N = 8 // self.config['k']
             for line in data_f.readlines():
                 src_line, tgt_line = line.split('\t')
-                src_words = ['<BOS>'] + src_line.split() + ['<EOS>']
-                tgt_words = ['<BOS>'] + tgt_line.split() + ['<EOS>']
+                src_words = N * ['<BOS>'] + src_line.split() + N * ['<EOS>']
+                tgt_words = N * ['<BOS>'] + tgt_line.split() + N * ['<EOS>']
                 data.append((src_words, tgt_words))
         return self.batch_data(data)

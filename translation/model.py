@@ -1,4 +1,3 @@
-import math
 from typing import Callable
 
 import torch
@@ -167,7 +166,7 @@ class Model(nn.Module):
         #     case 'rnn':
         #         self.pool = RNNPool(embed_dim, kernel_size)
         self.rnn_pool = RNNPool(embed_dim, kernel_size)
-        self.out_embed = Embedding(embed_dim, math.ceil(vocab_dim / 8) * 8)
+        self.out_embed = Embedding(embed_dim, vocab_dim)  # math.ceil(vocab_dim / 8) * 8
         self.src_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
         self.tgt_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
 

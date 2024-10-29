@@ -30,8 +30,10 @@ def train_epoch(
         batch_length = batch.length()
 
         with torch.cuda.amp.autocast():
-            logits = manager.model(src_nums, tgt_nums, src_mask, tgt_mask)
-            loss = criterion(torch.flatten(logits[:, :-1], 0, 1), torch.flatten(tgt_nums[:, 1:]))
+            # logits = manager.model(src_nums, tgt_nums, src_mask, tgt_mask)
+            # loss = criterion(torch.flatten(logits[:, :-1], 0, 1), torch.flatten(tgt_nums[:, 1:]))
+            logits = manager.model(src_nums, tgt_nums[:, : -batch.shift], src_mask, tgt_mask)
+            loss = criterion(torch.flatten(logits, 0, 1), torch.flatten(tgt_nums[:, batch.shift :]))
 
         if optimizer and scaler:
             optimizer.zero_grad()
