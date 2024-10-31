@@ -29,7 +29,7 @@ class Vocab:
 
     def denumberize(self, nums: list[int]) -> list[str]:
         try:
-            start = nums.index(self.BOS) + 1
+            start = len(nums) - nums[::-1].index(self.BOS)
         except ValueError:
             start = 0
         try:

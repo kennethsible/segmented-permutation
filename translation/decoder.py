@@ -15,14 +15,27 @@ def triu_mask(size: int, device: str | None = None) -> Tensor:
 def greedy_search(manager: 'Manager', src_encs: Tensor, max_length: int = 512) -> Tensor:
     model, vocab, device = manager.model, manager.vocab, manager.device
     tgt_mask = triu_mask(max_length, device=device)
+    tgt_mask = model.rnn_pool(tgt_mask, mask=True)
+    tgt_mask = model.rnn_pool(tgt_mask.transpose(1, 2), mask=True).transpose(1, 2)
     path = torch.full((1, max_length), vocab.BOS, device=device)
+    N = 8 // manager.config['k']
 
-    for i in range(1, max_length):
-        tgt_encs = model.decode(src_encs.unsqueeze(0), path[:, :i], tgt_mask=tgt_mask[:, :i, :i])
-        logits = model.out_embed(tgt_encs[:, -1], inverse=True)
-        path[0, i] = logits.log_softmax(dim=-1).argmax(dim=-1)
-        if path[0, i] == vocab.EOS:
-            break
+    for i in range(N, max_length, N):
+        tgt_encs = model.decode(src_encs, path[:, :i], tgt_mask=tgt_mask[:, : i // N, : i // N])
+        # logits = model.out_embed(tgt_encs[:, -1], inverse=True)
+        # path[0, i] = logits.log_softmax(dim=-1).argmax(dim=-1)
+        x = tgt_encs[:, -1].unsqueeze(1)
+        w = torch.zeros((x.size(0), 1, x.size(2)), device=x.device)
+        for j in range(N):
+            z, _ = model.rnn_pool.rnn_decoder(w, x)
+            logits = model.out_embed(z.unsqueeze(1), inverse=True)
+            path[0, i + j] = logits.log_softmax(dim=-1).argmax(dim=-1)
+            if path[0, i + j] == vocab.EOS:
+                return path[0, : i + j].squeeze(0)
+            w = model.tgt_embed(path[0, i + j].unsqueeze(0).unsqueeze(0))
+            x = z
+        # print(vocab.denumberize(path[0, : i + N].tolist()))
+        # exit()
 
     return path.squeeze(0)
 
