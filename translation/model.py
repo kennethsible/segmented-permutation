@@ -95,51 +95,31 @@ class Decoder(nn.Module):
         return self.norm(tgt_encs)
 
 
-class RNNPool(nn.Module):
+class RNNEncoder(nn.Module):
     def __init__(self, embed_dim: int, kernel_size: int):
-        super(RNNPool, self).__init__()
-        self.rnn_encoder = nn.RNN(embed_dim, embed_dim, batch_first=True)
-        self.rnn_decoder = nn.RNN(embed_dim, embed_dim, batch_first=True)
+        super(RNNEncoder, self).__init__()
+        self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
         self.kernel_size = kernel_size
 
-    # x: [batch_size, seq_len * k / 8, embed_dim]
-    def inverse(self, x: Tensor, w: Tensor | None = None) -> Tensor:
-        stride = self.kernel_size
-        if w is None:
-            pass
-            # concatenate self.tgt_embs(torch.argmax(self.out_embed(z)))
-            # decode until z.size(1) == kernel_size
-            # repeat for each i in range(1, x.size(1))
-        else:
-            # w: [batch_size, seq_len, embed_dim]
-            w0 = torch.zeros((x.size(0), 1, x.size(2)), device=x.device)
-            z, _ = self.rnn_decoder(
-                torch.cat((w0, w[:, : stride - 1]), dim=1), x[:, 0:1].transpose(0, 1)
-            )
-            for i in range(1, x.size(1)):
-                j = i * stride
-                y, _ = self.rnn_decoder(
-                    torch.cat((w0, w[:, j : j + stride - 1]), dim=1),
-                    x[:, i : i + 1].transpose(0, 1),
-                )
-                z = torch.cat((z, y), dim=1)
-        return z
+    def forward(self, src_encs: Tensor) -> Tensor:
+        N = self.kernel_size
+        return self.rnn(src_encs)[0][:, N - 1 :: N]
 
-    def forward(self, x: Tensor, mask: bool = False) -> Tensor:
-        stride = self.kernel_size
-        if mask:
-            # x: [batch_size, 1, seq_len]
-            z = x[:, :, 0].unsqueeze(2)
-            for i in range(stride, x.size(2), stride):
-                z = torch.cat((z, x[:, :, i].unsqueeze(2)), dim=2)
-            return z
-        # x: [batch_size, seq_len, embed_dim]
-        _, y = self.rnn_encoder(x[:, :stride])
-        z = y.transpose(0, 1)
-        for i in range(stride, x.size(1), stride):
-            _, y = self.rnn_encoder(x[:, i : i + stride])
-            z = torch.cat((z, y.transpose(0, 1)), dim=1)
-        return z
+
+class RNNDecoder(nn.Module):
+    def __init__(self, embed_dim: int, kernel_size: int):
+        super(RNNDecoder, self).__init__()
+        self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
+        self.kernel_size = kernel_size
+
+    def forward(self, tgt_encs: Tensor, tgt_embs: Tensor) -> Tensor:
+        w, h, N = tgt_embs, tgt_encs.transpose(0, 1), self.kernel_size
+        w0 = torch.zeros((w.size(0), 1, w.size(2)), device=w.device)
+        y, _ = self.rnn(torch.cat((w0, w[:, : N - 1]), dim=1), h[0:1])
+        for i in range(1, h.size(0)):
+            x = torch.cat((w0, w[:, i * N : (i + 1) * N - 1]), dim=1)
+            y = torch.cat((y, self.rnn(x, h[i : i + 1])[0]), dim=1)
+        return y
 
 
 class Model(nn.Module):
@@ -151,21 +131,15 @@ class Model(nn.Module):
         num_heads: int,
         dropout: float,
         num_layers: int,
-        kernel_size: int,
-        # pool_method: str | None = None,
+        kernel_size: int = -1,
     ):
         super(Model, self).__init__()
         self.encoder = Encoder(embed_dim, ff_dim, num_heads, dropout, num_layers)
         self.decoder = Decoder(embed_dim, ff_dim, num_heads, dropout, num_layers)
-        # self.pool: nn.MaxPool1d | nn.AvgPool1d | RNNPool | None = None
-        # match pool_method:
-        #     case 'max':
-        #         self.pool = nn.MaxPool1d(kernel_size, stride=kernel_size)
-        #     case 'avg':
-        #         self.pool = nn.AvgPool1d(kernel_size, stride=kernel_size)
-        #     case 'rnn':
-        #         self.pool = RNNPool(embed_dim, kernel_size)
-        self.rnn_pool = RNNPool(embed_dim, kernel_size)
+        self.kernel_size = kernel_size
+        if self.kernel_size != -1:
+            self.rnn_enc = RNNEncoder(embed_dim, kernel_size)
+            self.rnn_dec = RNNDecoder(embed_dim, kernel_size)
         self.out_embed = Embedding(embed_dim, vocab_dim)  # math.ceil(vocab_dim / 8) * 8
         self.src_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
         self.tgt_embed = nn.Sequential(self.out_embed, PositionalEncoding(embed_dim, dropout))
@@ -175,9 +149,10 @@ class Model(nn.Module):
         src_nums: Tensor,
         src_mask: Tensor | None = None,
     ) -> Tensor:
-        src_embs = self.src_embed(src_nums)
-        if self.rnn_pool is not None:
-            src_embs = self.rnn_pool(src_embs)
+        if self.kernel_size == -1:
+            src_embs = self.src_embed(src_nums)
+        else:
+            src_embs = self.rnn_enc(self.src_embed(src_nums))
         return self.encoder(src_embs, src_mask)
 
     def decode(
@@ -187,30 +162,28 @@ class Model(nn.Module):
         src_mask: Tensor | None = None,
         tgt_mask: Tensor | None = None,
     ) -> Tensor:
-        tgt_embs = self.tgt_embed(tgt_nums)
-        if self.rnn_pool is not None:
-            tgt_embs = self.rnn_pool(tgt_embs)
+        if self.kernel_size == -1:
+            tgt_embs = self.tgt_embed(tgt_nums)
+        else:
+            tgt_embs = self.rnn_enc(self.tgt_embed(tgt_nums))
         return self.decoder(src_encs, tgt_embs, src_mask, tgt_mask)
 
     def forward(
-        self, src_nums: Tensor, tgt_nums: Tensor, src_mask: Tensor, tgt_mask: Tensor
+        self,
+        src_nums: Tensor,
+        tgt_nums: Tensor,
+        src_mask: Tensor,
+        tgt_mask: Tensor,
     ) -> Tensor:
-        if self.rnn_pool is not None:
-            src_mask = self.rnn_pool(src_mask, mask=True)
-            # print(tgt_mask.size())
-            # for i in range(tgt_mask.size(1)):
-            #     print(tgt_mask[0, i, :].int().tolist())
-            tgt_mask = self.rnn_pool(tgt_mask, mask=True)
-            # print(tgt_mask.size())
-            # for i in range(tgt_mask.size(1)):
-            #     print(tgt_mask[0, i, :].int().tolist())
-            tgt_mask = self.rnn_pool(tgt_mask.transpose(1, 2), mask=True).transpose(1, 2)
+        if self.kernel_size != -1:
+            N = self.rnn_enc.kernel_size
+            src_mask = src_mask[:, :, ::N]
+            tgt_mask = tgt_mask[:, ::N, ::N]
             # print(tgt_mask.size())
             # for i in range(tgt_mask.size(1)):
             #     print(tgt_mask[0, i, :].int().tolist())
         src_encs = self.encode(src_nums, src_mask)
         tgt_encs = self.decode(src_encs, tgt_nums, src_mask, tgt_mask)
-        if self.rnn_pool is not None:
-            tgt_embs = self.tgt_embed(tgt_nums)
-            return self.out_embed(self.rnn_pool.inverse(tgt_encs, tgt_embs), inverse=True)
+        if self.kernel_size != -1:
+            tgt_encs = self.rnn_dec(tgt_encs, self.tgt_embed(tgt_nums))
         return self.out_embed(tgt_encs, inverse=True)

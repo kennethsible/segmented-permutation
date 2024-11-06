@@ -21,11 +21,11 @@
 
 </details>
 
-To generate training/validation data, see [translation.ipynb](/translation.ipynb).
-
 ## Training Example
+- To generate training/validation data, see [translation.ipynb](/translation.ipynb).
+- To generate bash scripts for experiments, see [param_array.sh](/param_array.sh).
 ```
-$ python translation/main.py --train-data data_bits/train_8_1.tsv --val-data data_bits/val_8_1.tsv --sw-vocab data_bits/vocab_8_1.tsv --model data_bits/model_8_1.pt --log data_bits/model_8_1.log --k 1
+$ python translation/main.py --train-data data_bits/train_8_1.tsv --val-data data_bits/val_8_1.tsv --sw-vocab data_bits/vocab_8_1.tsv --model data_bits/model_8_1.pt --log data_bits/model_8_1.log --kernel-size 8
 ```
 
 ## CLI Reference

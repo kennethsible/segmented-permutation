@@ -14,3 +14,4 @@ clip_grad           = 1.0   # maximum allowed value of gradients
 batch_size          = 4096  # number of tokens per batch (source/target)
 max_length          = 256   # maximum sentence length (during training)
 beam_size           = 4     # size of decoding beam (during inference)
+kernel_size         = 1     # number of subwords in a word (pooling)

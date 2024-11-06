@@ -27,13 +27,13 @@ def train_epoch(
     for batch in tqdm(data):
         src_nums, src_mask = batch.src_nums, batch.src_mask
         tgt_nums, tgt_mask = batch.tgt_nums, batch.tgt_mask
-        batch_length = batch.length()
+        batch_length, kernel_size = batch.length(), batch.kernel_size
 
         with torch.cuda.amp.autocast():
             # logits = manager.model(src_nums, tgt_nums, src_mask, tgt_mask)
             # loss = criterion(torch.flatten(logits[:, :-1], 0, 1), torch.flatten(tgt_nums[:, 1:]))
-            logits = manager.model(src_nums, tgt_nums[:, : -batch.shift], src_mask, tgt_mask)
-            loss = criterion(torch.flatten(logits, 0, 1), torch.flatten(tgt_nums[:, batch.shift :]))
+            logits = manager.model(src_nums, tgt_nums[:, :-kernel_size], src_mask, tgt_mask)
+            loss = criterion(torch.flatten(logits, 0, 1), torch.flatten(tgt_nums[:, kernel_size:]))
 
         if optimizer and scaler:
             optimizer.zero_grad()
@@ -77,8 +77,8 @@ def train_model(train_data: list[Batch], val_data: list[Batch], manager: Manager
             val_loss = train_epoch(val_data, manager, criterion)
         scheduler.step(val_loss)
 
-        train_loss /= math.log(2) * manager.config['k']
-        val_loss /= math.log(2) * manager.config['k']
+        train_loss /= math.log(2) * (8 / manager.kernel_size)
+        val_loss /= math.log(2) * (8 / manager.kernel_size)
 
         checkpoint = f'[{str(epoch + 1).rjust(len(str(manager.max_epochs)), "0")}]'
         checkpoint += f' Training Loss = {train_loss:.16f}'

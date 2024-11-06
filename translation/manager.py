@@ -44,12 +44,17 @@ class Vocab:
 
 class Batch:
     def __init__(
-        self, src_nums: Tensor, tgt_nums: Tensor, ignore_index: int, shift: int, device: str = 'cpu'
+        self,
+        src_nums: Tensor,
+        tgt_nums: Tensor,
+        kernel_size: int,
+        ignore_index: int,
+        device: str = 'cpu',
     ):
         self._src_nums = src_nums
         self._tgt_nums = tgt_nums
+        self.kernel_size = kernel_size
         self.ignore_index = ignore_index
-        self.shift = shift  # kernel_size
         self.device = device
 
     @property
@@ -67,10 +72,12 @@ class Batch:
     @property
     def tgt_mask(self) -> Tensor:
         # return triu_mask(self.tgt_nums.size(-1), device=self.device)
-        return triu_mask(self.tgt_nums[:, : -self.shift].size(-1), device=self.device)
+        N = self.kernel_size
+        return triu_mask(self.tgt_nums[:, :-N].size(-1), device=self.device)
 
     def length(self) -> int:
-        return int((self.tgt_nums[:, self.shift :] != self.ignore_index).sum())
+        N = self.kernel_size
+        return int((self.tgt_nums[:, N:] != self.ignore_index).sum())
 
     def size(self) -> int:
         return self._src_nums.size(0)
@@ -122,6 +129,7 @@ class Manager:
     batch_size: int
     max_length: int
     beam_size: int
+    kernel_size: int
 
     def __init__(
         self,
@@ -154,8 +162,6 @@ class Manager:
         # else:
         #     self.sw_model = spm.SentencePieceProcessor(sw_model_file)
 
-        # if 'pool_method' not in self.config:
-        #     self.config['pool_method'] = None
         self.model = Model(
             self.vocab.size(),
             self.embed_dim,
@@ -163,8 +169,7 @@ class Manager:
             self.num_heads,
             self.dropout,
             self.num_layers,
-            8 // self.config['k'],
-            # self.config['pool_method'],
+            self.kernel_size,
         ).to(device)
 
         def init_weights(m):
@@ -194,7 +199,6 @@ class Manager:
 
         data.sort(key=lambda x: (len(x[0]), len(x[1])), reverse=True)
 
-        N = 8 // self.config['k']
         i = batch_size = 0
         while (i := i + batch_size) < len(data):
             src_len, tgt_len = len(data[i][0]), len(data[i][1])
@@ -235,14 +239,16 @@ class Manager:
                 ]
             )
 
-            batched_data.append(Batch(src_nums, tgt_nums, self.vocab.PAD, N, self.device))
+            batched_data.append(
+                Batch(src_nums, tgt_nums, self.kernel_size, self.vocab.PAD, self.device)
+            )
 
         return batched_data
 
     def load_data(self, data_file: str) -> list[Batch]:
         data = []
         with open(data_file) as data_f:
-            N = 8 // self.config['k']
+            N = self.kernel_size
             for line in data_f.readlines():
                 src_line, tgt_line = line.split('\t')
                 src_words = N * ['<BOS>'] + src_line.split() + N * ['<EOS>']
