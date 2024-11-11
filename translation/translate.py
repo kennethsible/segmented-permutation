@@ -8,11 +8,15 @@ def tokenize(w: list[str], k: int) -> list[str]:
     return [s[i : i + k] for s in w for i in range(0, len(s), k)]
 
 
+def detokenize(w: list[str], N: int) -> str:
+    return ' '.join([''.join(w[i : i + N]) for i in range(0, len(w), N)])
+
+
 def translate(string: str, manager: Manager) -> str:
     model, vocab, device = manager.model, manager.vocab, manager.device
     # tokenizer = Tokenizer(manager.src_lang, manager.tgt_lang, manager.sw_model)
-    N = 8 // manager.config['k']
-    src_words = tokenize(string.split(), manager.config['k'])
+    N = manager.kernel_size
+    src_words = tokenize(string.split(), 8 // N)
     src_words = N * ['<BOS>'] + src_words + N * ['<EOS>']
 
     model.eval()
@@ -21,7 +25,7 @@ def translate(string: str, manager: Manager) -> str:
         src_encs = model.encode(src_nums.unsqueeze(0))
         out_nums = greedy_search(manager, src_encs, manager.max_length * 2)
 
-    return ' '.join(vocab.denumberize(out_nums.tolist()))
+    return detokenize(vocab.denumberize(out_nums.tolist()), N)
 
 
 def main():
