@@ -22,7 +22,7 @@ def translate(string: str, manager: Manager) -> str:
     model.eval()
     with torch.no_grad():
         src_nums = torch.tensor(vocab.numberize(src_words), device=device)
-        src_encs = model.encode(src_nums.unsqueeze(0))
+        src_encs, _ = model.encode(src_nums.unsqueeze(0))
         out_nums = greedy_search(manager, src_encs, manager.max_length * 2)
 
     return detokenize(vocab.denumberize(out_nums.tolist()), N)

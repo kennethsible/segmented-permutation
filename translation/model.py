@@ -3,7 +3,9 @@ from typing import Callable
 import torch
 import torch.nn as nn
 from torch import Tensor
+from torch.distributions.uniform import Uniform
 
+from translation.decoder import triu_mask
 from translation.layers import (
     Embedding,
     FeedForward,
@@ -99,11 +101,35 @@ class RNNEncoder(nn.Module):
     def __init__(self, embed_dim: int, kernel_size: int):
         super(RNNEncoder, self).__init__()
         self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
+        self.linear = nn.Linear(embed_dim, 1)
         self.kernel_size = kernel_size
 
-    def forward(self, src_encs: Tensor) -> Tensor:
-        N = self.kernel_size
-        return self.rnn(src_encs)[0][:, N - 1 :: N]
+    @staticmethod
+    def gumbel_sigmoid(x: Tensor, tau: float = 1.0, threshold: float = 0.5) -> Tensor:
+        u = Uniform(0, 1).sample(x.size()).to(x.device)
+        Z = torch.sigmoid((x - torch.logit(u)) / tau)
+        return (Z > threshold).int() - Z.detach() + Z
+
+    @staticmethod
+    def downsample(y: Tensor, m: Tensor) -> tuple[Tensor, Tensor]:
+        # replace non-boundary vectors with 0s
+        y = torch.masked_fill(y, ~m.bool(), 0)
+        # shift all 0s in the mask to the end
+        index = torch.argsort(m.expand_as(y), dim=1, descending=True)
+        # shift all 0-vectors in y to the end
+        y = torch.gather(y, dim=1, index=index)
+        # identify last non-zero vector in y
+        z_m = (y != 0).any(dim=0)
+        z_i = torch.where(z_m)[0].max() + 1
+        # return truncated y and non-zero mask
+        return y[:, :z_i], (y[:, :z_i] != 0).any(dim=-1).unsqueeze(1)
+
+    def forward(self, src_encs: Tensor) -> tuple[Tensor, Tensor]:
+        # N = self.kernel_size
+        # return self.rnn(src_encs)[0][:, N - 1 :: N]
+        y, _ = self.rnn(src_encs)
+        m = self.gumbel_sigmoid(self.linear(y)).int()
+        return self.downsample(y, m)
 
 
 class RNNDecoder(nn.Module):
@@ -111,6 +137,10 @@ class RNNDecoder(nn.Module):
         super(RNNDecoder, self).__init__()
         self.rnn = nn.RNN(embed_dim, embed_dim, batch_first=True)
         self.kernel_size = kernel_size
+
+    @staticmethod
+    def upsample():
+        pass
 
     def forward(self, tgt_encs: Tensor, tgt_embs: Tensor) -> Tensor:
         w, h, N = tgt_embs, tgt_encs.transpose(0, 1), self.kernel_size
@@ -148,12 +178,12 @@ class Model(nn.Module):
         self,
         src_nums: Tensor,
         src_mask: Tensor | None = None,
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor | None]:
         if self.kernel_size == -1:
             src_embs = self.src_embed(src_nums)
         else:
-            src_embs = self.rnn_enc(self.src_embed(src_nums))
-        return self.encoder(src_embs, src_mask)
+            src_embs, src_mask = self.rnn_enc(self.src_embed(src_nums))
+        return self.encoder(src_embs, src_mask), src_mask
 
     def decode(
         self,
@@ -165,7 +195,8 @@ class Model(nn.Module):
         if self.kernel_size == -1:
             tgt_embs = self.tgt_embed(tgt_nums)
         else:
-            tgt_embs = self.rnn_enc(self.tgt_embed(tgt_nums))
+            tgt_embs, pad_mask = self.rnn_enc(self.tgt_embed(tgt_nums))
+            tgt_mask = pad_mask & triu_mask(pad_mask.size(-1), pad_mask.device)
         return self.decoder(src_encs, tgt_embs, src_mask, tgt_mask)
 
     def forward(
@@ -182,7 +213,7 @@ class Model(nn.Module):
             # print(tgt_mask.size())
             # for i in range(tgt_mask.size(1)):
             #     print(tgt_mask[0, i, :].int().tolist())
-        src_encs = self.encode(src_nums, src_mask)
+        src_encs, src_mask = self.encode(src_nums, src_mask)  # type: ignore
         tgt_encs = self.decode(src_encs, tgt_nums, src_mask, tgt_mask)
         if self.kernel_size != -1:
             tgt_encs = self.rnn_dec(tgt_encs, self.tgt_embed(tgt_nums))
